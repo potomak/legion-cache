@@ -10,6 +10,7 @@ module Main (
 
 import Prelude hiding (lookup)
 
+import Canteven.Config (canteven)
 import Canteven.Log (setupLogging)
 import Canteven.Snap (getMethod, noContent, notFound, methodNotAllowed)
 import Control.Applicative ((<$>))
@@ -20,10 +21,12 @@ import Data.ByteString (ByteString)
 import Data.Text (unpack)
 import Data.Text.Encoding (decodeUtf8)
 import GHC.Generics (Generic)
+import LegionCache.Config (Config(Config, peerAddr, startupMode))
 import Network.Legion (forkLegionary, Legionary(Legionary,
   handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
   PartitionState(PartitionState), LegionarySettings(LegionarySettings,
-  peerBindAddr, discovery, stateFile))
+  peerBindAddr, discovery), DiscoverySettings(Multicast),
+  MulticastDiscovery(multicastHost, multicastPort, MulticastDiscovery))
 import Snap (readRequestBody, Method(GET, PUT, DELETE), getsRequest,
   rqPathInfo, getHeader, modifyResponse, setHeader, writeLBS)
 import Web.Moonshine (Moonshine, runMoonshine, liftSnap)
@@ -32,16 +35,19 @@ import qualified Data.ByteString.Lazy as L (ByteString)
 
 main :: IO ()
 main = do
+    Config {peerAddr, startupMode} <- canteven
+    let settings = LegionarySettings {
+        peerBindAddr = peerAddr,
+        discovery = Multicast MulticastDiscovery {
+            multicastHost = "224.0.0.116",
+            multicastPort = 8888
+          }
+      }
     setupLogging
     memstore <- newMemoryPersistence
-    handle <- forkLegionary (legionary memstore) settings
+    handle <- forkLegionary (legionary memstore) settings startupMode
     runMoonshine (website handle)
   where
-    settings = LegionarySettings {
-        peerBindAddr = "ipv4:localhost:8002",
-        discovery = error "legion-cache: undefined discovery",
-        stateFile = "legion-state"
-      }
     legionary memstore = Legionary {
         handleRequest,
         persistence = memstore
@@ -49,7 +55,8 @@ main = do
     handleRequest _ request state =
       case (request, state) of
         (Get, Nothing) -> (NotFound, state)
-        (Get, Just (PartitionState bin)) -> let (ct, c) = decode bin in (Val ct c, state)
+        (Get, Just (PartitionState bin)) ->
+          let (ct, c) = decode bin in (Val ct c, state)
         (Set ct c, _) -> (Ok, Just (PartitionState (encode (ct, c))))
         (Delete, _) -> (Ok, Nothing)
 

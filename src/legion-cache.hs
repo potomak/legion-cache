@@ -21,12 +21,13 @@ import Data.ByteString (ByteString)
 import Data.Text (unpack)
 import Data.Text.Encoding (decodeUtf8)
 import GHC.Generics (Generic)
-import LegionCache.Config (Config(Config, peerAddr, startupMode))
+import LegionCache.Config (Config(Config, peerAddr, joinAddr, journalFile,
+  storagePath, joinTarget), resolveAddr)
 import Network.Legion (forkLegionary, Legionary(Legionary,
-  handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
+  handleRequest, persistence), diskPersistence, PartitionKey(K),
   PartitionState(PartitionState), LegionarySettings(LegionarySettings,
-  peerBindAddr, discovery), DiscoverySettings(Multicast),
-  MulticastDiscovery(multicastHost, multicastPort, MulticastDiscovery))
+  peerBindAddr, joinBindAddr, journal), StartupMode(JoinCluster,
+  NewCluster))
 import Snap (readRequestBody, Method(GET, PUT, DELETE), getsRequest,
   rqPathInfo, getHeader, modifyResponse, setHeader, writeLBS)
 import Web.Moonshine (Moonshine, runMoonshine, liftSnap)
@@ -35,22 +36,25 @@ import qualified Data.ByteString.Lazy as L (ByteString)
 
 main :: IO ()
 main = do
-    Config {peerAddr, startupMode} <- canteven
+    Config {peerAddr, joinAddr, joinTarget, journalFile, storagePath} <- canteven
+    peerBindAddr <- resolveAddr peerAddr
+    joinBindAddr <- resolveAddr joinAddr
     let settings = LegionarySettings {
-        peerBindAddr = peerAddr,
-        discovery = Multicast MulticastDiscovery {
-            multicastHost = "224.0.0.116",
-            multicastPort = 8888
-          }
+        peerBindAddr,
+        joinBindAddr,
+        journal = journalFile
       }
     setupLogging
-    memstore <- newMemoryPersistence
-    handle <- forkLegionary (legionary memstore) settings startupMode
+    let persist = diskPersistence storagePath
+    mode <- case joinTarget of
+      Nothing -> return NewCluster
+      Just addy -> JoinCluster <$> resolveAddr addy
+    handle <- forkLegionary (legionary persist) settings mode
     runMoonshine (website handle)
   where
-    legionary memstore = Legionary {
+    legionary persist = Legionary {
         handleRequest,
-        persistence = memstore
+        persistence = persist
       }
     handleRequest _ request state =
       case (request, state) of

@@ -16,6 +16,7 @@ import Network.Socket (SockAddr, addrAddress, getAddrInfo)
 
 
 data Config = Config {
+    port :: Int,
     peerAddr :: AddressDescription,
     joinAddr :: AddressDescription,
     joinTarget :: Maybe AddressDescription,
@@ -42,8 +43,8 @@ type AddressDescription = String
 resolveAddr :: AddressDescription -> IO SockAddr
 resolveAddr desc =
   case splitOn ":" desc of
-    ["ipv4", name, port] ->
-      addrAddress . head <$> getAddrInfo Nothing (Just name) (Just port)
+    ["ipv4", name, port_] ->
+      addrAddress . head <$> getAddrInfo Nothing (Just name) (Just port_)
     _ -> error ("Invalid address description: " ++ show desc)
 
 

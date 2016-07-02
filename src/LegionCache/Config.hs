@@ -8,11 +8,11 @@ module LegionCache.Config (
   AddressDescription
 ) where
 
-import Control.Applicative ((<$>))
 import Data.Aeson (FromJSON)
 import Data.List.Split (splitOn)
 import GHC.Generics (Generic)
 import Network.Socket (SockAddr, addrAddress, getAddrInfo)
+import Network.Wai.Handler.Warp (Port)
 
 
 data Config = Config {
@@ -20,8 +20,9 @@ data Config = Config {
     peerAddr :: AddressDescription,
     joinAddr :: AddressDescription,
     joinTarget :: Maybe AddressDescription,
-    journalFile :: FilePath,
-    storagePath :: FilePath
+    storagePath :: FilePath,
+    adminPort :: Port,
+    adminHost :: String
   } deriving (Generic)
 
 instance FromJSON Config

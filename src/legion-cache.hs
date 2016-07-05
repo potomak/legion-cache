@@ -75,20 +75,158 @@ main = do
     mode <- case joinTarget of
       Nothing -> return NewCluster
       Just addy -> JoinCluster <$> resolveAddr addy
+
+
+    {- fork the Legion process in the background -}
     handle <- (`runLoggingT` logging)
       $ forkLegionary (legionary persist) settings mode
+
+    {- |
+      build a website that passes (transformed) http requests to the
+      legion framework.
+    -}
     scottyT port id (website handle oldest newest)
   where
+    {-
+      Construct the Legionary value that defines the application to be
+      run by the Legion framework.
+
+      See: https://hackage.haskell.org/package/legion-0.1.0.0/docs/Network-Legion.html#t:Legionary
+    -}
     legionary persist = Legionary {
         handleRequest,
         persistence = persist
       }
+
+    {-
+      This is the application request handler which is run by the Legion
+      framework. This, combined with a persistence layer, make up the entirety
+      of the Legion application.
+
+      Legion-Cache is a key/value store, so this particular request
+      handler turns out to be very simple. There are 3 possible
+      operations: Get, Put, and Delete.
+
+      The 'PartitionKey' type is defined by the Legion framework, and indicates
+      to which partition the request applies.
+
+      The 'Request', 'State', and 'Response' types, on the other hand, are
+      defined by us, and make up an important part of the definition of the
+      application we are asking Legion to run. Those types make up the types
+      upon which our application logic operates, and this function implements
+      the logic itself.
+    -}
     handleRequest :: PartitionKey -> Request -> State -> Response
     handleRequest _ Get NonExistent = NotFound
     handleRequest _ Get Existent {contentType, content} =
       Val contentType content
     handleRequest _ Put {} _ = Ok
     handleRequest _ Delete _ = Ok
+
+
+{- |
+  This is the type of request that our Legion application will handle.
+  
+  Our application implements a key/value store, so:
+
+  'Get' means retrieve the current value of the partition.
+  'Put" means set the value of the partition to the provided value, which
+        includes the content-type, some content, and a time stamp indicating
+        age.
+  'Delete' means wipe out the current value, if there is one.
+
+  We have to implementing these semantics ourselves, in the application request
+  handler, which is named 'handleRequest', just above.
+-}
+data Request
+  = Get
+  | Put (Maybe ContentType) Content Time
+  | Delete deriving (Generic, Show, Eq)
+{-
+  Requests must be an instance of 'Binary' because they will probably have to
+  be transmitted across the network.
+-}
+instance Binary Request
+{-
+  Requests must be an instance of 'ApplyDelta'. This lets the Legion framework
+  know how each request might mutate the partition state.
+-}
+instance ApplyDelta Request State where
+  {- 'Get' does not mutate the partition state at all.  -}
+  apply Get s = s 
+
+  {-
+    'Put' mutates the partition state by setting it to exactly the
+    ('Existent') value provided, overriding any previous value.
+  -}
+  apply (Put ct c t) _ = Existent ct c t
+
+  {-
+    'Delete' mutates the partition state by setting it to 'NonExistent',
+    overriding any previous value.
+  -}
+  apply Delete _ = NonExistent
+
+
+{- |
+  This is the type of state needed by our Legion application. Each
+  partition key is associated with a value of this type. The Legion-Cache
+  application is modeled so that each partition corresponds with a single
+  "value" in our key/value store (and each "key" with the corresponding
+  'PartitionKey'.
+
+  We are implementing a key/value store where one partition represents one
+  entry in the store, so we define each partition to be either:
+
+  'NonExistent', meaning our key/value store does not contain an entry for the
+    associated key; or
+
+  'Existent', meaning the value associated with the key exists and
+    possesses the attributes associated with this data constructor
+    (i.e. contentType, content, and time).
+
+-}
+data State
+  = NonExistent
+  | Existent {
+      contentType :: Maybe ContentType,
+          content :: Content,
+        timeStamp :: Time
+    }
+  deriving (Generic, Show)
+instance Binary State
+instance Default State where
+  def = NonExistent
+
+
+{- |
+  These are the types of responses that we have defined for our application.
+  The values are:
+
+  'Ok', used as the response to 'Put' and 'Delete' requests.
+
+  'NotFound', used as the response to a 'Get' request, when the partition value
+    is 'NonExistent'
+
+  'Val', used as the response to a 'Get' request when the partition value is
+    'Existent'
+
+  Note! At this time it is not possible to bind a particular type of
+  response to a particular type of request at the type-system level. So,
+  there is nothing preventing our handler ('handleRequest', defined above)
+  from returning 'Ok' in response to a 'Get' request (which makes no sense
+  for a key/value store). It *is* possible to achieve this kind of binding
+  using the Haskell type system, though, and we will strongly consider
+  adding this capability to the Legion framework in the future; but for
+  now Legion is still in the experimental phase, so we want to keep it
+  as simple as possible until we are sure we have a solid underlying core.
+-}
+data Response
+  = Ok
+  | NotFound
+  | Val (Maybe ContentType) Content
+  deriving (Generic, Show)
+instance Binary Response
 
 
 website
@@ -144,38 +282,6 @@ encodeKey :: Text -> PartitionKey
 encodeKey = K . read . unpack
 
 
-data Request
-  = Get
-  | Put (Maybe ContentType) Content Rational
-  | Delete deriving (Generic, Show, Eq)
-instance Binary Request
-instance ApplyDelta Request State where
-  apply Get s = s
-  apply (Put ct c t) _ = Existent ct c t
-  apply Delete _ = NonExistent
-
-
-data Response
-  = Ok
-  | NotFound
-  | Val (Maybe ContentType) Content
-  deriving (Generic, Show)
-instance Binary Response
-
-
-data State
-  = NonExistent
-  | Existent {
-      contentType :: Maybe ContentType,
-          content :: Content,
-             time :: Rational
-    }
-  deriving (Generic, Show)
-instance Binary State
-instance Default State where
-  def = NonExistent
-
-
 type ContentType = Text
 
 
@@ -187,6 +293,15 @@ instance LegionConstraints Request Response State where
 
 {- |
   A `Persistence` layer that maintains an index by time.
+
+  The index implemented here is completely outside of the Legion
+  framework. It is an example of how a program using the Legion framework
+  might keep track of data for its own purposes. Right now we are
+  using this as the basis for an experimental map-reduce prototype
+  (e.g. finding the oldest or newest object in the entire cluster),
+  but this is just an experiment. We will almost certainly build real
+  map-reduce capability into Legion itself at some point in the future.
+
 -}
 data IndexedByTime = IndexedByTime {
     persist :: Persistence Request State,
@@ -241,11 +356,11 @@ indexed logging p = do
         writeTVar byTimeT (
             case projected ps of
               NonExistent -> byTime
-              Existent {time} ->
+              Existent {timeStamp} ->
                 let
                   update Nothing = Just (key:|[])
                   update (Just keys) = Just (key <| keys)
-                in Map.alter update time byTime
+                in Map.alter update timeStamp byTime
           )
 
     list p $$ awaitForever (lift . uncurry index)
@@ -266,5 +381,12 @@ indexed logging p = do
       }
   where
     debugM = (`runLoggingT` logging) . $(logDebug) . pack 
+
+
+{- |
+  Time is represented as a 'Rational' because UTCTime does not have a
+  'Binary' instance.
+-}
+type Time = Rational
 
 

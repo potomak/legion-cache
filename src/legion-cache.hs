@@ -42,9 +42,9 @@ import Network.Legion (forkLegionary, Legionary(Legionary,
   StartupMode(JoinCluster, NewCluster), ApplyDelta(apply),
   LegionConstraints, Persistence(Persistence, getState, saveState, list),
   PartitionPowerState, projected)
+import Web.Scotty (ScottyM, scotty, body, status, header, setHeader,
+  raw, param)
 import Web.Scotty.Resource.Trans (resource, put, get, delete)
-import Web.Scotty.Trans (ScottyT, scottyT, body, status, header,
-  setHeader, raw, param)
 import qualified Data.List.NonEmpty as List
 import qualified Data.Map as Map
 import qualified Network.Legion as L
@@ -85,7 +85,7 @@ main = do
       build a website that passes (transformed) http requests to the
       legion framework.
     -}
-    scottyT port id (website handle oldest newest)
+    scotty port (website handle oldest newest)
   where
     {-
       Construct the Legionary value that defines the application to be
@@ -233,7 +233,7 @@ website
   :: (PartitionKey -> Request -> IO Response)
   -> IO (Maybe PartitionKey)
   -> IO (Maybe PartitionKey)
-  -> ScottyT Text IO ()
+  -> ScottyM ()
 website handle oldest newest = do
     resource "/cache/:key" $ do
       put $ do

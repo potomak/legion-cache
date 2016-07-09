@@ -76,14 +76,20 @@ main = do
       Nothing -> return NewCluster
       Just addy -> JoinCluster <$> resolveAddr addy
 
+    {-
+      Fork the Legion runtime process in the background, returning a "handler"
+      function that we can use to send 'Request's to the Legion runtime for
+      execution.
 
-    {- fork the Legion process in the background -}
+      handle :: PartitionKey -> Request -> IO Response
+    -}
     handle <- (`runLoggingT` logging)
       $ forkLegionary (legionary persist) settings mode
 
     {- |
-      build a website that passes (transformed) http requests to the
-      legion framework.
+      Run a scotty application using the warp server. The scotty
+      application transforms HTTP requests into our Legion application's
+      'Request' type, and passes those requests to the Legion runtime.
     -}
     scotty port (website handle oldest newest)
   where
@@ -130,12 +136,12 @@ main = do
   Our application implements a key/value store, so:
 
   'Get' means retrieve the current value of the partition.
-  'Put" means set the value of the partition to the provided value, which
+  'Put' means set the value of the partition to the provided value, which
         includes the content-type, some content, and a time stamp indicating
         age.
   'Delete' means wipe out the current value, if there is one.
 
-  We have to implementing these semantics ourselves, in the application request
+  We have to implement these semantics ourselves, in the application request
   handler, which is named 'handleRequest', just above.
 -}
 data Request
@@ -173,7 +179,7 @@ instance ApplyDelta Request State where
   partition key is associated with a value of this type. The Legion-Cache
   application is modeled so that each partition corresponds with a single
   "value" in our key/value store (and each "key" with the corresponding
-  'PartitionKey'.
+  'PartitionKey').
 
   We are implementing a key/value store where one partition represents one
   entry in the store, so we define each partition to be either:
@@ -214,12 +220,13 @@ instance Default State where
   Note! At this time it is not possible to bind a particular type of
   response to a particular type of request at the type-system level. So,
   there is nothing preventing our handler ('handleRequest', defined above)
-  from returning 'Ok' in response to a 'Get' request (which makes no sense
-  for a key/value store). It *is* possible to achieve this kind of binding
-  using the Haskell type system, though, and we will strongly consider
-  adding this capability to the Legion framework in the future; but for
-  now Legion is still in the experimental phase, so we want to keep it
-  as simple as possible until we are sure we have a solid underlying core.
+  from returning 'Ok' in response to a 'Get' request (which would make
+  no sense for a key/value store). It *is* possible to achieve this
+  kind of binding using the Haskell type system, though, and we will
+  strongly consider adding this capability to the Legion framework in
+  the future; but for now Legion is still in the experimental phase,
+  so we want to keep it as simple as possible until we are sure we have
+  a solid underlying core.
 -}
 data Response
   = Ok

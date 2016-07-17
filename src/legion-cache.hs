@@ -13,7 +13,6 @@ module Main (
 
 import Prelude hiding (lookup)
 
-import Canteven.Config (canteven)
 import Canteven.Log.MonadLog (getCantevenOutput, LoggerTImpl)
 import Control.Concurrent.STM (newTVar, readTVar, writeTVar, atomically)
 import Control.Exception (evaluate)
@@ -33,15 +32,14 @@ import Data.Text.Lazy (unpack, Text)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import GHC.Generics (Generic)
-import LegionCache.Config (Config(Config, peerAddr, joinAddr, joinTarget,
-  port, adminPort, adminHost), resolveAddr)
+import LegionCache.Config (Config(Config, peerAddr, joinAddr, port,
+  adminPort, adminHost), resolveAddr, parseArgs)
 import Network.HTTP.Types (noContent204)
 import Network.Legion (forkLegionary, Legionary(Legionary,
   handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
   LegionarySettings(LegionarySettings, peerBindAddr, joinBindAddr),
-  StartupMode(JoinCluster, NewCluster), ApplyDelta(apply),
-  LegionConstraints, Persistence(Persistence, getState, saveState, list),
-  PartitionPowerState, projected)
+  ApplyDelta(apply), LegionConstraints, Persistence(Persistence, getState,
+  saveState, list), PartitionPowerState, projected)
 import Web.Scotty (ScottyM, scotty, body, status, header, setHeader,
   raw, param)
 import Web.Scotty.Resource.Trans (resource, put, get, delete)
@@ -53,15 +51,17 @@ import qualified LegionCache.Config as C
 
 main :: IO ()
 main = do
-    Config {
-        port,
-        peerAddr,
-        joinAddr,
-        joinTarget,
-        adminPort,
-        adminHost,
-        C.logging = loggingConfig
-      } <- canteven
+    (
+        Config {
+            port,
+            peerAddr,
+            joinAddr,
+            adminPort,
+            adminHost,
+            C.logging = loggingConfig
+          },
+        startupMode
+      ) <- parseArgs
     peerBindAddr <- resolveAddr peerAddr
     joinBindAddr <- resolveAddr joinAddr
     let settings = LegionarySettings {
@@ -73,9 +73,6 @@ main = do
     logging <- getCantevenOutput loggingConfig
     IndexedByTime {persist, oldest, newest}
       <- indexed logging =<< newMemoryPersistence
-    mode <- case joinTarget of
-      Nothing -> return NewCluster
-      Just addy -> JoinCluster <$> resolveAddr addy
 
     {-
       Fork the Legion runtime process in the background, returning a "handler"
@@ -85,7 +82,7 @@ main = do
       handle :: PartitionKey -> Request -> IO Response
     -}
     handle <- (`runLoggingT` logging)
-      $ forkLegionary (legionary persist) settings mode
+      $ forkLegionary (legionary persist) settings startupMode
 
     {- |
       Run a scotty application using the warp server. The scotty

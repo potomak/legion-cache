@@ -48,6 +48,7 @@ import Web.Scotty.Resource.Trans (resource, put, get, delete)
 import qualified Data.List.NonEmpty as List
 import qualified Data.Map as Map
 import qualified Network.Legion as L
+import qualified LegionCache.Config as C
 
 
 main :: IO ()
@@ -58,7 +59,8 @@ main = do
         joinAddr,
         joinTarget,
         adminPort,
-        adminHost
+        adminHost,
+        C.logging = loggingConfig
       } <- canteven
     peerBindAddr <- resolveAddr peerAddr
     joinBindAddr <- resolveAddr joinAddr
@@ -68,7 +70,7 @@ main = do
         L.adminPort = adminPort,
         L.adminHost = fromString adminHost
       }
-    logging <- getCantevenOutput
+    logging <- getCantevenOutput loggingConfig
     IndexedByTime {persist, oldest, newest}
       <- indexed logging =<< newMemoryPersistence
     mode <- case joinTarget of

@@ -8,6 +8,7 @@ module LegionCache.Config (
   AddressDescription
 ) where
 
+import Canteven.Log.MonadLog (LoggingConfig)
 import Data.Aeson (FromJSON)
 import Data.List.Split (splitOn)
 import GHC.Generics (Generic)
@@ -21,7 +22,8 @@ data Config = Config {
     joinAddr :: AddressDescription,
     joinTarget :: Maybe AddressDescription,
     adminPort :: Port,
-    adminHost :: String
+    adminHost :: String,
+    logging :: LoggingConfig
   } deriving (Generic)
 
 instance FromJSON Config

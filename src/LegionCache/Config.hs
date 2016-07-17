@@ -20,7 +20,6 @@ data Config = Config {
     peerAddr :: AddressDescription,
     joinAddr :: AddressDescription,
     joinTarget :: Maybe AddressDescription,
-    storagePath :: FilePath,
     adminPort :: Port,
     adminHost :: String
   } deriving (Generic)

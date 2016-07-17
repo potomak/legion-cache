@@ -33,11 +33,11 @@ import Data.Text.Lazy (unpack, Text)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import GHC.Generics (Generic)
-import LegionCache.Config (Config(Config, peerAddr, joinAddr, storagePath,
-  joinTarget, port, adminPort, adminHost), resolveAddr)
+import LegionCache.Config (Config(Config, peerAddr, joinAddr, joinTarget,
+  port, adminPort, adminHost), resolveAddr)
 import Network.HTTP.Types (noContent204)
 import Network.Legion (forkLegionary, Legionary(Legionary,
-  handleRequest, persistence), diskPersistence, PartitionKey(K),
+  handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
   LegionarySettings(LegionarySettings, peerBindAddr, joinBindAddr),
   StartupMode(JoinCluster, NewCluster), ApplyDelta(apply),
   LegionConstraints, Persistence(Persistence, getState, saveState, list),
@@ -57,7 +57,6 @@ main = do
         peerAddr,
         joinAddr,
         joinTarget,
-        storagePath,
         adminPort,
         adminHost
       } <- canteven
@@ -71,7 +70,7 @@ main = do
       }
     logging <- getCantevenOutput
     IndexedByTime {persist, oldest, newest}
-      <- indexed logging (diskPersistence storagePath)
+      <- indexed logging =<< newMemoryPersistence
     mode <- case joinTarget of
       Nothing -> return NewCluster
       Just addy -> JoinCluster <$> resolveAddr addy

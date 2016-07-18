@@ -3,8 +3,7 @@ packages:
 - '.'
 extra-deps:
 - Ranged-sets-0.3.0
-- canteven-config-1.0.0.0
-- canteven-log-0.3.0.3
+- canteven-log-1.0.0.0
 - data-bword-0.1.0.1
 - data-dword-0.3.1
 - legion-0.1.0.0

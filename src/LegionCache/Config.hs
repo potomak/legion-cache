@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {- |
   This module contains the configuration data structures.
 -}
@@ -11,7 +12,7 @@ module LegionCache.Config (
 ) where
 
 import Canteven.Log.MonadLog (LoggingConfig)
-import Data.Aeson (FromJSON)
+import Data.Aeson (FromJSON, Value(Object), (.:), parseJSON)
 import Data.Default.Class (Default(def))
 import Data.List (intercalate)
 import Data.List.Split (splitOn)
@@ -34,7 +35,16 @@ data Config = Config {
     logging :: LoggingConfig
   } deriving (Generic)
 
-instance FromJSON Config
+instance FromJSON Config where
+  parseJSON v@(Object config) = Config
+    <$> config .: "port"
+    <*> config .: "peerAddr"
+    <*> config .: "joinAddr"
+    <*> config .: "adminPort"
+    <*> config .: "adminHost"
+    <*> parseJSON v
+  parseJSON value =
+    fail $ "Couldn't parse config from " ++ show value
 
 
 {- |
@@ -113,5 +123,3 @@ data Opt = Opt {
   }
 instance Default Opt where
   def = Opt Nothing Nothing
-
-

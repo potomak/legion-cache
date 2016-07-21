@@ -123,5 +123,3 @@ data Opt = Opt {
   }
 instance Default Opt where
   def = Opt Nothing Nothing
-
-

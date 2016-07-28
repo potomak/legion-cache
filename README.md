@@ -50,4 +50,15 @@ The `-j` option tells legion-cache to try and join an existing Legion cluster.
 
 Now you should have two nodes running, one on port 8010, and one on port 8020.
 
+## Usage example
 
+Try to store a new cache value by sending a PUT request to the first nodes:
+
+    $ curl -v -X PUT \
+        -H 'Content-Type: text/plain' \
+        -d 'foo' \
+        http://localhost:8010/cache/0
+
+Try to retrieve the cache value you just stored from the second node:
+
+    $ curl -v http://localhost:8020/cache/0

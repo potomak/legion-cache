@@ -3,9 +3,9 @@
 Legion-Cache is an example program and test bed for the
 [Legion](https://github.com/taphu/legion) framework.
 
-It implements a durable distributed key/value store. It is still very much
-experimental (as is the Legion framework) and is not suitable for production
-use at this time.
+It implements a replicated, in-memeory, distributed key/value store. It
+is still very much experimental (as is the Legion framework) and is not
+suitable for production use at this time.
 
 ## Getting started
 
@@ -37,14 +37,14 @@ The configuration for node 2 might look like this:
 
 To start up the first node, run:
 
-    $ legion-cache -c <config-file-1>
+    $ stack exec legion-cache -- -c <config-file-1>
 
 The default behavior when starting up is to create a new cluster, which is what
 this command will do.
 
 To start up the second node, run:
 
-    $ legion-cache -c <config-file-2> -j ipv4:localhost:8013
+    $ stack exec legion-cache -- -c <config-file-2> -j ipv4:localhost:8013
 
 The `-j` option tells legion-cache to try and join an existing Legion cluster.
 

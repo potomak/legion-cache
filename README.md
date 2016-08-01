@@ -37,14 +37,14 @@ The configuration for node 2 might look like this:
 
 To start up the first node, run:
 
-    $ stack exec legion-cache -- -c <config-file-1>
+    $ stack build && stack exec legion-cache -- -c <config-file-1>
 
 The default behavior when starting up is to create a new cluster, which is what
 this command will do.
 
 To start up the second node, run:
 
-    $ stack exec legion-cache -- -c <config-file-2> -j ipv4:localhost:8013
+    $ stack build && stack exec legion-cache -- -c <config-file-2> -j ipv4:localhost:8013
 
 The `-j` option tells legion-cache to try and join an existing Legion cluster.
 

@@ -33,7 +33,7 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import GHC.Generics (Generic)
 import LegionCache.Config (Config(Config, peerAddr, joinAddr, port,
-  adminPort, adminHost), resolveAddr, parseArgs)
+  adminPort, adminHost), resolveAddr, parseArgs, ekgPort)
 import Network.HTTP.Types (noContent204)
 import Network.Legion (forkLegionary, Legionary(Legionary,
   handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
@@ -47,6 +47,7 @@ import qualified Data.List.NonEmpty as List
 import qualified Data.Map as Map
 import qualified LegionCache.Config as C
 import qualified Network.Legion as L
+import qualified System.Remote.Monitoring as Ekg
 
 
 main :: IO ()
@@ -58,10 +59,15 @@ main = do
             joinAddr,
             adminPort,
             adminHost,
+            ekgPort,
             C.logging = loggingConfig
           },
         startupMode
       ) <- parseArgs
+
+    {- start EKG -}
+    void $ Ekg.forkServer "localhost" ekgPort
+
     peerBindAddr <- resolveAddr peerAddr
     joinBindAddr <- resolveAddr joinAddr
     let settings = LegionarySettings {

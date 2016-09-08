@@ -22,6 +22,8 @@ The configuration for node 1 might look like this:
     peerAddr: ipv4:localhost:8012
     joinAddr: ipv4:localhost:8013
 
+    ekgPort: 8014
+
 The configuration for node 2 might look like this:
 
     port: 8020
@@ -33,6 +35,8 @@ The configuration for node 2 might look like this:
 
     peerAddr: ipv4:localhost:8022
     joinAddr: ipv4:localhost:8023
+
+    ekgPort: 8024
 
 
 To start up the first node, run:

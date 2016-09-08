@@ -3,7 +3,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 {- |
   The main program entry point for legion-cache.
 -}
@@ -13,24 +12,23 @@ module Main (
 
 import Prelude hiding (lookup)
 
-import Canteven.Log.MonadLog (getCantevenOutput, LoggerTImpl)
-import Control.Concurrent.STM (newTVar, readTVar, writeTVar, atomically)
+import Canteven.Log.MonadLog (getCantevenOutput)
 import Control.Exception (evaluate)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (runLoggingT, logDebug)
+import Control.Monad.Logger (runLoggingT)
 import Control.Monad.Trans.Class (lift)
 import Data.Binary (Binary)
 import Data.ByteString.Lazy (ByteString)
-import Data.Conduit (($$), awaitForever)
+import Data.Conduit (($$))
 import Data.Default.Class (Default, def)
-import Data.List.NonEmpty (NonEmpty((:|)), (<|))
-import Data.Map (Map)
+import Data.Set (Set)
 import Data.String (fromString)
 import Data.Text (pack)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Text.Lazy (unpack, Text)
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds, posixSecondsToUTCTime)
 import GHC.Generics (Generic)
 import LegionCache.Config (Config(Config, peerAddr, joinAddr, port,
   adminPort, adminHost), resolveAddr, parseArgs, ekgPort)
@@ -38,14 +36,13 @@ import Network.HTTP.Types (noContent204)
 import Network.Legion (forkLegionary, Legionary(Legionary, index,
   handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
   LegionarySettings(LegionarySettings, peerBindAddr, joinBindAddr),
-  ApplyDelta(apply), Runtime, Persistence(Persistence, getState,
-  saveState, list), makeRequest, PartitionPowerState, projected)
+  ApplyDelta(apply), Runtime, Tag(Tag), search, SearchTag(SearchTag),
+  makeRequest, IndexRecord(IndexRecord))
 import Web.Scotty (ScottyM, scotty, body, status, header, setHeader,
   raw, param)
 import Web.Scotty.Resource.Trans (resource, put, get, delete)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.List.NonEmpty as List
-import qualified Data.Map as Map
+import qualified Data.Conduit.List as CL
 import qualified Data.Set as Set
 import qualified LegionCache.Config as C
 import qualified Network.Legion as L
@@ -79,8 +76,7 @@ main = do
         L.adminHost = fromString adminHost
       }
     logging <- getCantevenOutput loggingConfig
-    IndexedByTime {persist, oldest}
-      <- indexed logging =<< newMemoryPersistence
+    persist <- newMemoryPersistence
 
     {-
       Fork the Legion runtime process in the background, returning a
@@ -95,7 +91,7 @@ main = do
       application transforms HTTP requests into our Legion application's
       'Request' type, and passes those requests to the Legion runtime.
     -}
-    scotty port (website runtime oldest)
+    scotty port (website runtime)
   where
     {-
       Construct the Legionary value that defines the application to be
@@ -106,7 +102,7 @@ main = do
     legionary persist = Legionary {
         handleRequest,
         persistence = persist,
-        index = const Set.empty
+        index
       }
 
     {-
@@ -133,6 +129,21 @@ main = do
       Val contentType content
     handleRequest _ Put {} _ = Ok
     handleRequest _ Delete _ = Ok
+
+    {- |
+      This informs the legion framework how we want to to index our partitions.
+      In this case, we base it on the time of the cache entry. Legion index
+      tags are sorted lexicographically, so we need to use a time format that
+      sorts correctly. It turns out, ISO-8601 Zulu time works just fine for
+      this.
+    -}
+    index :: State -> Set Tag
+    index NonExistent = Set.empty
+    index Existent {timeStamp} =
+      let
+        utcTime = posixSecondsToUTCTime (fromRational timeStamp)
+        tag = "time=" ++ formatTime defaultTimeLocale "%FT%XZ" utcTime
+      in (Set.singleton . Tag . encodeUtf8 . pack) tag
 
 
 {- |
@@ -255,9 +266,8 @@ instance Binary Response
 
 website
   :: Runtime Request Response
-  -> IO (Maybe PartitionKey)
   -> ScottyM ()
-website runtime oldest = do
+website runtime = do
     resource "/cache/:key" $ do
       put $ do
         key <- getKey
@@ -276,9 +286,10 @@ website runtime oldest = do
         status noContent204
     resource "/oldest" $
       get $
-        lift oldest >>= \case
-          Nothing -> status noContent204
-          Just key -> doGet =<< makeRequest runtime key Get
+        (search runtime (SearchTag "time=" Nothing) $$ CL.take 1) >>= \case
+          [] -> status noContent204
+          IndexRecord _ key:_ -> doGet =<< makeRequest runtime key Get
+
   where
     getKey = lift . evaluate . encodeKey =<< param "key"
     doGet val =
@@ -303,93 +314,6 @@ type ContentType = Text
 
 
 type Content = ByteString
-
-
-{- |
-  A `Persistence` layer that maintains an index by time.
-
-  The index implemented here is completely outside of the Legion
-  framework. It is an example of how a program using the Legion framework
-  might keep track of data for its own purposes. Right now we are
-  using this as the basis for an experimental map-reduce prototype
-  (e.g. finding the oldest object in the entire cluster),
-  but this is just an experiment. We will almost certainly build real
-  map-reduce capability into Legion itself at some point in the future.
-
--}
-data IndexedByTime = IndexedByTime {
-    persist :: Persistence Request State,
-     oldest :: IO (Maybe PartitionKey)
-  }
-
-
-indexed :: LoggerTImpl -> Persistence Request State -> IO IndexedByTime
-indexed logging p = do
-    byTimeT <- atomically $
-      newTVar (Map.empty :: Map Rational (NonEmpty PartitionKey))
-    let
-      search
-        :: (
-            {-
-              This honker is the type of a "view" into the index,
-              a. la. 'Map.minView'
-            -}
-            Map Rational (NonEmpty PartitionKey)
-            -> Maybe (NonEmpty PartitionKey, Map Rational (NonEmpty PartitionKey))
-          )
-        -> IO (Maybe PartitionKey)
-      search view = do
-        debugM . ("Index: " ++) . show =<< atomically (readTVar byTimeT)
-        atomically $
-          view <$> readTVar byTimeT >>= \case
-            Nothing -> return Nothing
-            Just (key :| _, _) -> return (Just key)
-
-      oldest :: IO (Maybe PartitionKey)
-      oldest = search Map.minView
-
-      unindex key = do
-        byTime <- readTVar byTimeT
-        writeTVar byTimeT $ Map.fromAscList [
-            (t, k)
-            | (t, keys) <- Map.toAscList byTime
-            , k <-
-              case List.filter (/= key) keys of
-                [] -> []
-                a:more -> [a:|more]
-          ]
-
-      index :: PartitionKey -> PartitionPowerState Request State -> IO ()
-      index key ps = atomically $ do
-        unindex key
-        byTime <- readTVar byTimeT
-        writeTVar byTimeT (
-            case projected ps of
-              NonExistent -> byTime
-              Existent {timeStamp} ->
-                let
-                  update Nothing = Just (key:|[])
-                  update (Just keys) = Just (key <| keys)
-                in Map.alter update timeStamp byTime
-          )
-
-    list p $$ awaitForever (lift . uncurry index)
-      
-    return IndexedByTime {
-        persist = Persistence {
-            getState = getState p,
-            saveState = \ key state -> do
-              debugM $ "Saving: " ++ show (key, state)
-              case state of
-                Nothing -> atomically (unindex key)
-                Just ps -> index key ps
-              saveState p key state,
-            list = list p
-          },
-        oldest
-      }
-  where
-    debugM = (`runLoggingT` logging) . $(logDebug) . pack 
 
 
 {- |

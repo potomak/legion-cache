@@ -35,16 +35,17 @@ import GHC.Generics (Generic)
 import LegionCache.Config (Config(Config, peerAddr, joinAddr, port,
   adminPort, adminHost), resolveAddr, parseArgs, ekgPort)
 import Network.HTTP.Types (noContent204)
-import Network.Legion (forkLegionary, Legionary(Legionary,
+import Network.Legion (forkLegionary, Legionary(Legionary, index,
   handleRequest, persistence), newMemoryPersistence, PartitionKey(K),
   LegionarySettings(LegionarySettings, peerBindAddr, joinBindAddr),
-  ApplyDelta(apply), LegionConstraints, Persistence(Persistence, getState,
-  saveState, list), PartitionPowerState, projected)
+  ApplyDelta(apply), Runtime, Persistence(Persistence, getState,
+  saveState, list), makeRequest, PartitionPowerState, projected)
 import Web.Scotty (ScottyM, scotty, body, status, header, setHeader,
   raw, param)
 import Web.Scotty.Resource.Trans (resource, put, get, delete)
 import qualified Data.List.NonEmpty as List
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified LegionCache.Config as C
 import qualified Network.Legion as L
 import qualified System.Remote.Monitoring as Ekg
@@ -81,13 +82,11 @@ main = do
       <- indexed logging =<< newMemoryPersistence
 
     {-
-      Fork the Legion runtime process in the background, returning a "handler"
-      function that we can use to send 'Request's to the Legion runtime for
-      execution.
-
-      handle :: PartitionKey -> Request -> IO Response
+      Fork the Legion runtime process in the background, returning a
+      handle that we can use to send 'Request's to the Legion runtime
+      for execution.
     -}
-    handle <- (`runLoggingT` logging)
+    runtime <- (`runLoggingT` logging)
       $ forkLegionary (legionary persist) settings startupMode
 
     {- |
@@ -95,7 +94,7 @@ main = do
       application transforms HTTP requests into our Legion application's
       'Request' type, and passes those requests to the Legion runtime.
     -}
-    scotty port (website handle oldest)
+    scotty port (website runtime oldest)
   where
     {-
       Construct the Legionary value that defines the application to be
@@ -105,7 +104,8 @@ main = do
     -}
     legionary persist = Legionary {
         handleRequest,
-        persistence = persist
+        persistence = persist,
+        index = const Set.empty
       }
 
     {-
@@ -242,31 +242,31 @@ instance Binary Response
 
 
 website
-  :: (PartitionKey -> Request -> IO Response)
+  :: Runtime Request Response
   -> IO (Maybe PartitionKey)
   -> ScottyM ()
-website handle oldest = do
+website runtime oldest = do
     resource "/cache/:key" $ do
       put $ do
         key <- getKey
         content <- body
         contentType <- header "content-type"
         now <- toRational . utcTimeToPOSIXSeconds <$> liftIO getCurrentTime
-        (void . lift) $ handle key (Put contentType content now)
+        void $ makeRequest runtime key (Put contentType content now)
         status noContent204
       get $ do
         key <- getKey
-        val <- lift $ handle key Get
+        val <- makeRequest runtime key Get
         doGet val
       delete $ do
         key <- getKey
-        void . lift $ handle key Delete
+        void $ makeRequest runtime key Delete
         status noContent204
     resource "/oldest" $
       get $
         lift oldest >>= \case
           Nothing -> status noContent204
-          Just key -> doGet =<< lift (handle key Get)
+          Just key -> doGet =<< makeRequest runtime key Get
   where
     getKey = lift . evaluate . encodeKey =<< param "key"
     doGet val =
@@ -291,9 +291,6 @@ type ContentType = Text
 
 
 type Content = ByteString
-
-
-instance LegionConstraints Request Response State where
 
 
 {- |

@@ -1,8 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {- |
   The main program entry point for legion-cache.
@@ -45,8 +45,8 @@ import Web.Scotty (ScottyM, scotty, body, status, header, setHeader,
 import Web.Scotty.Resource.Trans (resource, put, get, delete)
 import qualified Data.List.NonEmpty as List
 import qualified Data.Map as Map
-import qualified Network.Legion as L
 import qualified LegionCache.Config as C
+import qualified Network.Legion as L
 
 
 main :: IO ()
@@ -145,7 +145,8 @@ main = do
 data Request
   = Get
   | Put (Maybe ContentType) Content Time
-  | Delete deriving (Generic, Show, Eq)
+  | Delete
+  deriving (Generic, Show, Eq)
 {-
   Requests must be an instance of 'Binary' because they will probably have to
   be transmitted across the network.

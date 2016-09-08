@@ -1,4 +1,5 @@
-resolver: lts-6.6
+flags: {}
+extra-package-dbs: []
 packages:
 - '.'
 extra-deps:
@@ -8,5 +9,4 @@ extra-deps:
 - data-dword-0.3.1
 - legion-0.1.0.0
 - scotty-resource-0.1.1.0
-flags: {}
-extra-package-dbs: []
+resolver: lts-6.6

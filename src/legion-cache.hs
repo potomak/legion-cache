@@ -77,7 +77,7 @@ main = do
         L.adminHost = fromString adminHost
       }
     logging <- getCantevenOutput loggingConfig
-    IndexedByTime {persist, oldest, newest}
+    IndexedByTime {persist, oldest}
       <- indexed logging =<< newMemoryPersistence
 
     {-
@@ -95,7 +95,7 @@ main = do
       application transforms HTTP requests into our Legion application's
       'Request' type, and passes those requests to the Legion runtime.
     -}
-    scotty port (website handle oldest newest)
+    scotty port (website handle oldest)
   where
     {-
       Construct the Legionary value that defines the application to be
@@ -244,9 +244,8 @@ instance Binary Response
 website
   :: (PartitionKey -> Request -> IO Response)
   -> IO (Maybe PartitionKey)
-  -> IO (Maybe PartitionKey)
   -> ScottyM ()
-website handle oldest newest = do
+website handle oldest = do
     resource "/cache/:key" $ do
       put $ do
         key <- getKey
@@ -268,12 +267,6 @@ website handle oldest newest = do
         lift oldest >>= \case
           Nothing -> status noContent204
           Just key -> doGet =<< lift (handle key Get)
-    resource "/newest" $
-      get $
-        lift newest >>= \case
-          Nothing -> status noContent204
-          Just key -> doGet =<< lift (handle key Get)
-        
   where
     getKey = lift . evaluate . encodeKey =<< param "key"
     doGet val =
@@ -310,15 +303,14 @@ instance LegionConstraints Request Response State where
   framework. It is an example of how a program using the Legion framework
   might keep track of data for its own purposes. Right now we are
   using this as the basis for an experimental map-reduce prototype
-  (e.g. finding the oldest or newest object in the entire cluster),
+  (e.g. finding the oldest object in the entire cluster),
   but this is just an experiment. We will almost certainly build real
   map-reduce capability into Legion itself at some point in the future.
 
 -}
 data IndexedByTime = IndexedByTime {
     persist :: Persistence Request State,
-     oldest :: IO (Maybe PartitionKey),
-     newest :: IO (Maybe PartitionKey)
+     oldest :: IO (Maybe PartitionKey)
   }
 
 
@@ -346,9 +338,6 @@ indexed logging p = do
 
       oldest :: IO (Maybe PartitionKey)
       oldest = search Map.minView
-
-      newest :: IO (Maybe PartitionKey)
-      newest = search Map.maxView
 
       unindex key = do
         byTime <- readTVar byTimeT
@@ -388,8 +377,7 @@ indexed logging p = do
               saveState p key state,
             list = list p
           },
-        oldest,
-        newest
+        oldest
       }
   where
     debugM = (`runLoggingT` logging) . $(logDebug) . pack 

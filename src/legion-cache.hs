@@ -43,6 +43,7 @@ import Network.Legion (forkLegionary, Legionary(Legionary, index,
 import Web.Scotty (ScottyM, scotty, body, status, header, setHeader,
   raw, param)
 import Web.Scotty.Resource.Trans (resource, put, get, delete)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.List.NonEmpty as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -152,12 +153,18 @@ data Request
   = Get
   | Put (Maybe ContentType) Content Time
   | Delete
-  deriving (Generic, Show, Eq)
+  deriving (Generic, Eq)
 {-
   Requests must be an instance of 'Binary' because they will probably have to
   be transmitted across the network.
 -}
 instance Binary Request
+instance Show Request where
+  show Get = "Get"
+  show (Put ct c t) =
+    "(Put " ++ show ct ++ " <" ++ show (BL.length c) ++ " bytes> "
+    ++ show t ++ ")"
+  show Delete = "Delete"
 {-
   Requests must be an instance of 'ApplyDelta'. This lets the Legion framework
   know how each request might mutate the partition state.
@@ -204,10 +211,15 @@ data State
           content :: Content,
         timeStamp :: Time
     }
-  deriving (Generic, Show)
+  deriving (Generic)
 instance Binary State
 instance Default State where
   def = NonExistent
+instance Show State where
+  show NonExistent = "NonExistent"
+  show (Existent ct c t) = 
+    "Existent {contentType = " ++ show ct ++ ", content = <"
+    ++ show (BL.length c) ++ " bytes>, timeStamp = " ++ show t ++ "}"
 
 
 {- |

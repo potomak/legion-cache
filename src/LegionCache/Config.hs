@@ -32,6 +32,7 @@ data Config = Config {
     joinAddr :: AddressDescription,
     adminPort :: Port,
     adminHost :: String,
+    ekgPort :: Port,
     logging :: LoggingConfig
   } deriving (Generic)
 
@@ -42,6 +43,7 @@ instance FromJSON Config where
     <*> config .: "joinAddr"
     <*> config .: "adminPort"
     <*> config .: "adminHost"
+    <*> config .: "ekgPort"
     <*> parseJSON v
   parseJSON value =
     fail $ "Couldn't parse config from " ++ show value

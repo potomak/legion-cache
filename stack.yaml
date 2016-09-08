@@ -1,12 +1,13 @@
-resolver: lts-6.6
+flags: {}
+extra-package-dbs: []
 packages:
 - '.'
 extra-deps:
 - Ranged-sets-0.3.0
+- canteven-http-0.1.1.1
 - canteven-log-1.0.0.0
 - data-bword-0.1.0.1
 - data-dword-0.3.1
-- legion-0.1.0.0
+- legion-0.3.0.0
 - scotty-resource-0.1.1.0
-flags: {}
-extra-package-dbs: []
+resolver: lts-6.13

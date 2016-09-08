@@ -9,4 +9,4 @@ extra-deps:
 - data-dword-0.3.1
 - legion-0.1.0.0
 - scotty-resource-0.1.1.0
-resolver: lts-6.6
+resolver: lts-6.13

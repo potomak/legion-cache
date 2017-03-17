@@ -18,6 +18,7 @@ import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runLoggingT)
 import Control.Monad.Trans.Class (lift)
+import Data.Aeson (ToJSON, toJSON, Value(String), object, (.=))
 import Data.Binary (Binary)
 import Data.ByteString.Lazy (ByteString)
 import Data.Conduit (($$))
@@ -148,7 +149,7 @@ main = do
 
 {- |
   This is the type of request that our Legion application will handle.
-  
+
   Our application implements a key/value store, so:
 
   'Get' means retrieve the current value of the partition.
@@ -182,7 +183,7 @@ instance Show Request where
 -}
 instance ApplyDelta Request State where
   {- 'Get' does not mutate the partition state at all.  -}
-  apply Get s = s 
+  apply Get s = s
 
   {-
     'Put' mutates the partition state by setting it to exactly the
@@ -228,9 +229,16 @@ instance Default State where
   def = NonExistent
 instance Show State where
   show NonExistent = "NonExistent"
-  show (Existent ct c t) = 
+  show (Existent ct c t) =
     "Existent {contentType = " ++ show ct ++ ", content = <"
     ++ show (BL.length c) ++ " bytes>, timeStamp = " ++ show t ++ "}"
+instance ToJSON State where
+  toJSON NonExistent = String . pack $ "NonExistent"
+  toJSON (Existent ct c t) = object [
+      "contentType" .= (String . pack $ show ct),
+      "contentBytes" .= (String . pack . show $ BL.length c),
+      "timeStamp" .= t
+    ]
 
 
 {- |
@@ -321,5 +329,3 @@ type Content = ByteString
   'Binary' instance.
 -}
 type Time = Rational
-
-

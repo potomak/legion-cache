@@ -2,6 +2,9 @@ flags: {}
 extra-package-dbs: []
 packages:
 - '.'
+- ../legion
+- ../haskell-canteven-log
+- ../scotty-format
 extra-deps:
 - Ranged-sets-0.3.0
 - canteven-http-0.1.1.1
@@ -9,5 +12,6 @@ extra-deps:
 - data-bword-0.1.0.1
 - data-dword-0.3.1
 - legion-0.3.0.0
+- scotty-format-0.1.0.0
 - scotty-resource-0.1.1.0
 resolver: lts-6.13
